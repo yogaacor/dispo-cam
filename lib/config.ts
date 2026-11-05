@@ -4,6 +4,8 @@ export const config = {
   hashtag: process.env.NEXT_PUBLIC_HASHTAG || "",
   shotsPerGuest: Math.max(1, Number(process.env.NEXT_PUBLIC_SHOTS_PER_GUEST) || 27),
   revealAt: process.env.NEXT_PUBLIC_REVEAL_AT || "",
+  eventEnd: process.env.NEXT_PUBLIC_EVENT_END || "",
+  galleryTitle: process.env.NEXT_PUBLIC_GALLERY_TITLE || "A little memory, a lotta love",
 };
 
 export function formatWeddingDate(): string {

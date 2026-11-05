@@ -8,24 +8,50 @@ import { getSupabase, isSupabaseConfigured, photoUrl, type PhotoRow } from "@/li
 
 const PAGE = 1000;
 
+function parseTime(value: string): number {
+  const t = value ? new Date(value).getTime() : 0;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
 function countdown(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   const d = Math.floor(s / 86400);
   const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
-  const sec = s % 60;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d > 0 ? `${d} hari ` : ""}${pad(h)}:${pad(m)}:${pad(sec)}`;
+  return `${d > 0 ? `${d} hari ` : ""}${pad(h)}:${pad(m)}:${pad(s % 60)}`;
+}
+
+/** "Jam Menit Tersisa" until the event ends. */
+function timeLeft(end: number, now: number | null): string {
+  if (!end || now === null) return "--:--";
+  const ms = end - now;
+  if (ms <= 0) return "Selesai";
+  const totalMin = Math.ceil(ms / 60000);
+  if (totalMin >= 48 * 60) return `${Math.floor(totalMin / 1440)} hari`;
+  return `${pad(Math.floor(totalMin / 60))}:${pad(totalMin % 60)}`;
+}
+
+function CameraIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.2-1.8A1.5 1.5 0 0 1 10.5 3.5h3a1.5 1.5 0 0 1 1.2.7L15.9 6h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12.5" r="3.5" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
 }
 
 export default function GalleryPage() {
-  const revealAt = useMemo(() => {
-    const t = config.revealAt ? new Date(config.revealAt).getTime() : 0;
-    return Number.isNaN(t) ? 0 : t;
-  }, []);
+  const revealAt = useMemo(() => parseTime(config.revealAt), []);
+  const eventEnd = useMemo(() => parseTime(config.eventEnd), []);
   const [now, setNow] = useState<number | null>(null);
   const [photos, setPhotos] = useState<PhotoRow[]>([]);
-  const [count, setCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [me, setMe] = useState("");
@@ -41,50 +67,32 @@ export default function GalleryPage() {
     } catch {
       /* ignore */
     }
-    if (!revealAt) return;
+    if (!revealAt && !eventEnd) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [revealAt]);
+  }, [revealAt, eventEnd]);
 
-  const fetchAll = useCallback(async () => {
-    const sb = getSupabase();
-    const all: PhotoRow[] = [];
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await sb
-        .from("photos")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .range(from, from + PAGE - 1);
-      if (error) throw error;
-      all.push(...(data as PhotoRow[]));
-      if (!data || data.length < PAGE) break;
-    }
-    return all;
-  }, []);
-
-  // Load photos (or just the count while the film is still "developing").
   useEffect(() => {
-    if (now === null || !isSupabaseConfigured) {
-      if (!isSupabaseConfigured) setLoading(false);
+    if (!isSupabaseConfigured) {
+      setLoading(false);
       return;
     }
     let cancelled = false;
     (async () => {
       try {
-        setError(null);
-        if (locked) {
-          const { count, error } = await getSupabase()
+        const sb = getSupabase();
+        const all: PhotoRow[] = [];
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await sb
             .from("photos")
-            .select("id", { count: "exact", head: true });
+            .select("*")
+            .order("created_at", { ascending: false })
+            .range(from, from + PAGE - 1);
           if (error) throw error;
-          if (!cancelled) setCount(count ?? 0);
-        } else {
-          const rows = await fetchAll();
-          if (!cancelled) {
-            setPhotos(rows);
-            setCount(rows.length);
-          }
+          all.push(...(data as PhotoRow[]));
+          if (!data || data.length < PAGE) break;
         }
+        if (!cancelled) setPhotos(all);
       } catch (e) {
         console.error(e);
         if (!cancelled) setError("Gagal memuat galeri. Coba muat ulang.");
@@ -95,9 +103,7 @@ export default function GalleryPage() {
     return () => {
       cancelled = true;
     };
-    // Only re-run when the lock state flips, not every tick.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [locked, now === null, fetchAll]);
+  }, []);
 
   // Live updates as guests shoot.
   useEffect(() => {
@@ -107,7 +113,6 @@ export default function GalleryPage() {
       .channel("photos-feed")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "photos" }, (payload) => {
         const row = payload.new as PhotoRow;
-        setCount((c) => (c ?? 0) + 1);
         setPhotos((p) => (p.some((x) => x.id === row.id) ? p : [row, ...p]));
       })
       .subscribe();
@@ -116,8 +121,13 @@ export default function GalleryPage() {
     };
   }, []);
 
+  const guests = useMemo(
+    () => new Set(photos.map((p) => p.guest_name.trim().toLowerCase())).size,
+    [photos]
+  );
+
   const visible = useMemo(
-    () => (onlyMine && me ? photos.filter((p) => p.guest_name === me) : photos),
+    () => (onlyMine ? photos.filter((p) => p.guest_name === me) : photos),
     [photos, onlyMine, me]
   );
 
@@ -146,31 +156,57 @@ export default function GalleryPage() {
   }
 
   const current = open !== null ? visible[open] : null;
+  const stat = (n: number) => (loading ? "–" : n.toLocaleString("id-ID"));
 
   return (
-    <main className="paper gallery">
-      <header className="gallery-head">
-        <div>
-          <p className="eyebrow">Hasil cuci film</p>
-          <h1 className="couple">{config.coupleNames}</h1>
-          {count !== null && <p className="muted">{count} foto dari para tamu</p>}
-        </div>
-        <div className="row">
-          {!locked && me && (
-            <button className={`chip ${onlyMine ? "chip-dark" : ""}`} onClick={() => setOnlyMine((v) => !v)}>
-              {onlyMine ? "Semua foto" : "Foto saya"}
-            </button>
-          )}
-          <Link href="/cam" className="btn btn-primary btn-sm">
-            Kamera
-          </Link>
-        </div>
+    <main className="gallery">
+      <header className="g-head">
+        <h1 className="g-title">
+          {config.galleryTitle}
+          <span className="g-couple">{config.coupleNames}</span>
+        </h1>
       </header>
 
-      {loading && <p className="muted center">Memuat...</p>}
+      <section className="g-stats" aria-label="Ringkasan">
+        <div className="g-stat">
+          <span className="g-stat-num">{stat(photos.length)}</span>
+          <span className="g-stat-label">Momen</span>
+        </div>
+        <div className="g-stat">
+          <span className="g-stat-num">{timeLeft(eventEnd, now)}</span>
+          <span className="g-stat-label">{eventEnd && now !== null && now >= eventEnd ? "Acara" : "Tersisa"}</span>
+        </div>
+        <div className="g-stat">
+          <span className="g-stat-num">{stat(guests)}</span>
+          <span className="g-stat-label">Orang</span>
+        </div>
+      </section>
+
+      <nav className="g-actions">
+        <div className="g-toggle" role="tablist" aria-label="Filter foto">
+          <button
+            role="tab"
+            aria-selected={onlyMine}
+            className={onlyMine ? "active" : ""}
+            onClick={() => setOnlyMine(true)}
+            disabled={!me}
+            title={me ? undefined : "Ambil foto dulu untuk melihat foto kamu"}
+          >
+            Foto Saya
+          </button>
+          <button role="tab" aria-selected={!onlyMine} className={!onlyMine ? "active" : ""} onClick={() => setOnlyMine(false)}>
+            Semua
+          </button>
+        </div>
+        <Link href="/cam" className="g-cam">
+          <CameraIcon />
+          Buka Kamera
+        </Link>
+      </nav>
+
       {error && <p className="error center">{error}</p>}
 
-      {locked && now !== null && (
+      {locked && now !== null ? (
         <section className="darkroom">
           <div className="darkroom-light" />
           <h2>Film sedang dicuci di kamar gelap</h2>
@@ -178,24 +214,23 @@ export default function GalleryPage() {
           <p className="darkroom-time">{countdown(revealAt - now)}</p>
           <p className="muted">Sabar ya, seperti kamera film sungguhan.</p>
         </section>
-      )}
-
-      {!locked && !loading && visible.length === 0 && !error && (
-        <p className="muted center">Belum ada foto. Jadilah yang pertama!</p>
-      )}
-
-      {!locked && (
-        <section className="prints">
+      ) : loading ? (
+        <section className="g-grid" aria-busy="true">
+          {Array.from({ length: 4 }, (_, i) => (
+            <div key={i} className="g-card g-skeleton" />
+          ))}
+        </section>
+      ) : visible.length === 0 && !error ? (
+        <p className="g-empty">
+          {onlyMine ? "Kamu belum mengambil foto." : "Belum ada foto. Jadilah yang pertama!"}
+        </p>
+      ) : (
+        <section className="g-grid">
           {visible.map((p, i) => (
-            <button
-              key={p.id}
-              className="print"
-              style={{ rotate: `${((i * 37) % 7) - 3}deg` }}
-              onClick={() => setOpen(i)}
-            >
+            <button key={p.id} className="g-card" onClick={() => setOpen(i)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={photoUrl(p.storage_path)} alt={`Foto oleh ${p.guest_name}`} loading="lazy" />
-              <span className="print-caption">{p.guest_name}</span>
+              <span className="g-name">{p.guest_name}</span>
             </button>
           ))}
         </section>
