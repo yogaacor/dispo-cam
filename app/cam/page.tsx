@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { config } from "@/lib/config";
-import { FILMS, develop, getFilm, type FilmId } from "@/lib/film";
+import { FILMS, dateStamp, develop, getFilm, type FilmId } from "@/lib/film";
 import { playShutter, playWind } from "@/lib/sound";
 import { BUCKET, getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 
@@ -339,6 +339,8 @@ export default function CamPage() {
     );
   }
 
+  const shutterLabel = needsWind ? "Putar film" : "Jepret";
+
   return (
     <main className="cam-page">
       <header className="cam-top">
@@ -355,100 +357,122 @@ export default function CamPage() {
         </button>
       </header>
 
-      <section className="camera-body">
-        <div className="body-label">
-          <span>DISPO·CAM</span>
-          <span className="body-film">{film.name}</span>
-        </div>
+      <div className="viewfinder">
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          style={{ filter: film.css, transform: facing === "user" ? "scaleX(-1)" : undefined }}
+        />
+        <div className="vf-vignette" />
+        <div className="vf-grain" />
+        <div className="vf-corners" />
 
-        <div className="viewfinder">
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            autoPlay
-            style={{ filter: film.css, transform: facing === "user" ? "scaleX(-1)" : undefined }}
-          />
-          <div className="vf-vignette" />
-          <div className="vf-grain" />
-          <div className="vf-corners" />
-          {!camOn && !camError && <div className="vf-msg">Membuka kamera...</div>}
-          {camError && <div className="vf-msg vf-error">{camError}</div>}
-          {needsWind && camOn && <div className="vf-msg vf-wind">Putar roda film dulu ↻</div>}
-          <div className={`vf-fx ${fx ?? ""}`} />
+        <div className="vf-hud">
+          <span className="vf-film">{film.name}</span>
+          <span className="vf-counter" aria-label={`${remaining} jepretan tersisa`}>
+            {String(remaining).padStart(2, "0")}
+          </span>
         </div>
+        <span className="vf-stamp" aria-hidden="true">
+          {dateStamp(new Date())}
+        </span>
 
-        <div className="film-picker" role="radiogroup" aria-label="Pilih film">
-          {FILMS.map((f) => (
-            <button
-              key={f.id}
-              role="radio"
-              aria-checked={f.id === film.id}
-              className={`film-chip ${f.id === film.id ? "active" : ""}`}
-              onClick={() => pickFilm(f.id)}
-              title={f.tagline}
-            >
-              <span className="canister" style={{ background: f.color }} />
-              {f.name}
-            </button>
-          ))}
-        </div>
-        <p className="film-tagline">{film.tagline}</p>
+        {!camOn && !camError && <div className="vf-msg">Membuka kamera...</div>}
+        {camError && <div className="vf-msg vf-error">{camError}</div>}
+        {needsWind && camOn && <div className="vf-msg vf-wind">Putar film dulu ↻</div>}
+        <div className={`vf-fx ${fx ?? ""}`} />
+      </div>
 
-        <div className="controls">
+      <div className="film-picker" role="radiogroup" aria-label="Pilih film">
+        {FILMS.map((f) => (
           <button
-            className={`ctrl ${flash ? "on" : ""}`}
-            onClick={() => setFlash((f) => !f)}
-            aria-pressed={flash}
-            aria-label="Flash"
+            key={f.id}
+            role="radio"
+            aria-checked={f.id === film.id}
+            className={`film-chip ${f.id === film.id ? "active" : ""}`}
+            onClick={() => pickFilm(f.id)}
+            title={f.tagline}
           >
-            <span className="ctrl-icon">⚡</span>
-            <span className="ctrl-text">{flash ? "Flash ON" : "Flash"}</span>
+            <span className="film-dot" style={{ background: f.color }} />
+            {f.name}
           </button>
+        ))}
+      </div>
 
-          <button
-            className="shutter"
-            onClick={shoot}
-            disabled={!camOn || busy || needsWind}
-            aria-label="Jepret"
-          />
+      <div className="controls">
+        <button
+          className={`ctrl ${flash ? "on" : ""}`}
+          onClick={() => setFlash((f) => !f)}
+          aria-pressed={flash}
+          aria-label={flash ? "Matikan flash" : "Nyalakan flash"}
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <path
+              d="M13 2 5 13.5h6L10 22l9-12.5h-6L13 2Z"
+              fill={flash ? "currentColor" : "none"}
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
 
-          <button
-            className="ctrl"
-            onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
-            aria-label="Ganti kamera"
-          >
-            <span className="ctrl-icon">⟲</span>
-            <span className="ctrl-text">{facing === "user" ? "Selfie" : "Belakang"}</span>
-          </button>
-        </div>
+        <button
+          className={`shutter ${needsWind ? "wind-mode" : ""} ${winding ? "spinning" : ""}`}
+          onClick={needsWind ? wind : shoot}
+          disabled={!camOn || busy || winding}
+          aria-label={shutterLabel}
+          title={shutterLabel}
+        >
+          {needsWind && (
+            <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true">
+              <path
+                d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4.5h-4.5"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </button>
 
-        <div className="body-bottom">
-          <div className="counter" aria-label={`${remaining} jepretan tersisa`}>
-            <span className="counter-num">{String(remaining).padStart(2, "0")}</span>
-            <span className="counter-label">sisa</span>
-          </div>
-          <button
-            className={`wind ${needsWind ? "ready" : ""} ${winding ? "spinning" : ""}`}
-            onClick={wind}
-            disabled={!needsWind}
-            aria-label="Putar film"
-          >
-            <span className="wind-ridges" />
-          </button>
-          <Link href="/gallery" className="chip chip-dark">
-            Galeri →
-          </Link>
-        </div>
-      </section>
+        <button
+          className="ctrl"
+          onClick={() => setFacing((f) => (f === "user" ? "environment" : "user"))}
+          aria-label="Ganti kamera depan/belakang"
+        >
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+            <path
+              d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.6l1.2-1.8a1.5 1.5 0 0 1 1.2-.7h3a1.5 1.5 0 0 1 1.2.7L15.9 6h1.6A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-8Z"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M9 12.5a3 3 0 0 1 5.2-2M15 12.5a3 3 0 0 1-5.2 2M14.6 9v1.6H13M9.4 16v-1.6H11"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
 
-      <div className="cam-status">
+      <div className="cam-foot">
         {uploading > 0 && <span>Mengirim {uploading} foto...</span>}
         {failed.length > 0 && (
           <button className="chip" onClick={retryFailed}>
             Kirim ulang {failed.length}
           </button>
         )}
+        <Link href="/gallery" className="cam-gallery-link">
+          Lihat galeri →
+        </Link>
       </div>
 
       {toast && <div className="toast">{toast}</div>}
