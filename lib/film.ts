@@ -1,4 +1,4 @@
-export type FilmId = "classic" | "gold" | "superia" | "mono" | "faded" | "party";
+export type FilmId = "classic" | "gold" | "superia" | "mono" | "faded" | "party" | "blur";
 
 type RGB = [number, number, number];
 
@@ -24,6 +24,12 @@ export interface Film {
   /** Light leak intensity 0-1. */
   leak: number;
   mono?: boolean;
+  /** Soft-focus amount 0-1 (cheap lens / missed focus). */
+  blur?: number;
+  /** Camera-shake ghost image 0-1. */
+  shake?: number;
+  /** Built-in soft flash 0-1, applied even when the flash toggle is off. */
+  flash?: number;
 }
 
 export const FILMS: Film[] = [
@@ -136,6 +142,27 @@ export const FILMS: Film[] = [
     vignette: 0.6,
     leak: 0.5,
   },
+  {
+    id: "blur",
+    name: "Blur Flash",
+    tagline: "Buram, sedikit goyang & kena flash, ala foto pesta jam 1 malam",
+    css: "blur(1.6px) brightness(1.14) contrast(1.12) saturate(1.15)",
+    color: "#f2e4c4",
+    brightness: 1.06,
+    contrast: 1.16,
+    saturation: 1.12,
+    warmth: 8,
+    tint: 0,
+    fade: 14,
+    shadow: [6, 0, 12],
+    highlight: [14, 8, -4],
+    grain: 24,
+    vignette: 0.55,
+    leak: 0.3,
+    blur: 0.6,
+    shake: 0.4,
+    flash: 0.22,
+  },
 ];
 
 export function getFilm(id: string | null | undefined): Film {
@@ -161,11 +188,14 @@ export function develop(
   film: Film,
   opts: { flash: boolean; date: Date; stamp?: boolean }
 ) {
+  if (film.blur || film.shake) soften(ctx, w, h, film.blur ?? 0, film.shake ?? 0);
+
   const img = ctx.getImageData(0, 0, w, h);
   const px = img.data;
   const cx = w / 2;
   const cy = h / 2;
-  const vignette = film.vignette + (opts.flash ? 0.25 : 0);
+  const flashAmt = Math.max(opts.flash ? 0.18 : 0, film.flash ?? 0);
+  const vignette = film.vignette + (flashAmt > 0 ? 0.25 : 0);
   const fadeScale = (255 - film.fade) / 255;
   const { brightness: br, contrast: ct, saturation: sat, warmth, tint, fade, grain, mono } = film;
   const [sr, sg, sb] = film.shadow;
@@ -180,7 +210,7 @@ export function develop(
       const d2 = (dx * dx + dy2) / 2; // 0 at centre, 1 at corners
 
       // On-camera flash: hot centre that falls off quickly.
-      const b = opts.flash ? br * (1 + 0.18 * Math.max(0, 1 - d2 * 2.5)) : br;
+      const b = flashAmt > 0 ? br * (1 + flashAmt * Math.max(0, 1 - d2 * 2.5)) : br;
 
       let r = px[i] * b;
       let g = px[i + 1] * b;
@@ -228,6 +258,53 @@ export function develop(
 
   if (film.leak > 0) drawLightLeak(ctx, w, h, film.leak);
   if (opts.stamp !== false) drawDateStamp(ctx, w, h, opts.date);
+}
+
+/**
+ * Camera shake (a faint offset double image), soft focus and a gentle highlight
+ * bloom. Blur is done by down- and up-scaling, which works in every browser
+ * (iOS Safari ignores ctx.filter).
+ */
+function soften(ctx: CanvasRenderingContext2D, w: number, h: number, blur: number, shake: number) {
+  const copy = document.createElement("canvas");
+  copy.width = w;
+  copy.height = h;
+  const cctx = copy.getContext("2d");
+  if (!cctx) return;
+  cctx.drawImage(ctx.canvas, 0, 0);
+
+  ctx.save();
+  if (shake > 0) {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = w * (0.012 + Math.random() * 0.02) * shake;
+    ctx.globalAlpha = 0.35 * shake + 0.15;
+    ctx.drawImage(copy, Math.cos(angle) * dist, Math.sin(angle) * dist);
+    ctx.globalAlpha = 0.2 * shake;
+    ctx.drawImage(copy, Math.cos(angle) * dist * 2, Math.sin(angle) * dist * 2);
+  }
+
+  if (blur > 0) {
+    const sw = Math.max(1, Math.round(w / 10));
+    const sh = Math.max(1, Math.round(h / 10));
+    const small = document.createElement("canvas");
+    small.width = sw;
+    small.height = sh;
+    const sctx = small.getContext("2d");
+    if (sctx) {
+      sctx.imageSmoothingQuality = "high";
+      sctx.drawImage(ctx.canvas, 0, 0, sw, sh);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      // Soft focus.
+      ctx.globalAlpha = 0.75 * blur;
+      ctx.drawImage(small, 0, 0, w, h);
+      // Bloom: highlights glow like a cheap flash on a plastic lens.
+      ctx.globalCompositeOperation = "screen";
+      ctx.globalAlpha = 0.3 * blur;
+      ctx.drawImage(small, 0, 0, w, h);
+    }
+  }
+  ctx.restore();
 }
 
 function drawLightLeak(ctx: CanvasRenderingContext2D, w: number, h: number, intensity: number) {
