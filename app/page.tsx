@@ -11,7 +11,7 @@ export default function Home() {
         {date && <p className="muted">{date}</p>}
         <p className="lead">
           Setiap tamu dapat <b>{config.shotsPerGuest} jepretan</b>. Tidak ada preview, tidak ada
-          hapus, persis seperti kamera film sungguhan. Foto akan &ldquo;dicuci&rdquo; dan muncul di galeri.
+          hapus. Enjoyy
         </p>
         <div className="stack">
           <Link className="btn btn-primary" href="/cam">
