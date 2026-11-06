@@ -8,7 +8,7 @@ const hand = Caveat({ subsets: ["latin"], weight: ["500", "700"], variable: "--f
 const serif = Fraunces({ subsets: ["latin"], weight: ["400", "600"], variable: "--font-serif" });
 
 export const metadata: Metadata = {
-  title: `Kamera ${config.coupleNames}`,
+  title: `${config.coupleNames}`,
   description: "Kamera sekali pakai digital untuk para tamu. Jepret, dan biarkan filmnya dicuci.",
 };
 
