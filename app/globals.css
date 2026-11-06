@@ -754,14 +754,18 @@ code {
   min-height: 46px;
   padding: 0 18px;
   border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--paper-2);
+  border: 1px solid #3b322c;
+  color: var(--ink);
   font-size: 13px;
   font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
-  box-shadow: 0 6px 18px rgba(226, 86, 27, 0.35);
-  transition: transform 0.1s;
+  transition: transform 0.1s, border-color 0.15s;
+}
+
+.g-cam:hover {
+  border-color: var(--ink-soft);
 }
 
 .g-cam:active {

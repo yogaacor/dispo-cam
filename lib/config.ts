@@ -1,5 +1,5 @@
 export const config = {
-  coupleNames: process.env.NEXT_PUBLIC_COUPLE_NAMES || "Nadhir & Pacare",
+  coupleNames: process.env.NEXT_PUBLIC_COUPLE_NAMES || "Nad&Najib",
   weddingDate: process.env.NEXT_PUBLIC_WEDDING_DATE || "",
   hashtag: process.env.NEXT_PUBLIC_HASHTAG || "",
   shotsPerGuest: Math.max(1, Number(process.env.NEXT_PUBLIC_SHOTS_PER_GUEST) || 27),

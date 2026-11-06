@@ -471,7 +471,7 @@ export default function CamPage() {
           </button>
         )}
         <Link href="/gallery" className="cam-gallery-link">
-          Lihat galeri →
+          Lihat Hasil
         </Link>
       </div>
 
